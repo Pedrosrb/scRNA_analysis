@@ -1,0 +1,84 @@
+#-----------------------------------------------------------------------
+# General R & RStudio
+#-----------------------------------------------------------------------
+# History files
+.Rhistory
+.Rapp.history
+
+# Session Data files
+.RData
+.RDataTmp
+
+# User-specific files
+.Ruserdata
+
+# RStudio files
+.Rproj.user/
+
+# OAuth2 token
+.httr-oauth
+
+# R Environment Variables
+.Renviron
+
+# RStudio Connect folder
+rsconnect/
+
+#-----------------------------------------------------------------------
+# renv - CRUCIAL FOR YOUR PROJECT
+#-----------------------------------------------------------------------
+# Ignore the local library, but track renv.lock
+renv/library/
+renv/staging/
+renv/cellar/
+
+#-----------------------------------------------------------------------
+# Project-Specific Folders & Files
+#-----------------------------------------------------------------------
+# Ignore large data and results directories
+data/
+results/
+
+# Ignore user-specific library path from Parameters.R
+/home/pedrosrb/singlecell_am/lib/Rpackages/
+
+# Common output files
+*.rds
+*.csv
+*.pdf
+*.png
+
+#-----------------------------------------------------------------------
+# R Package Development & Documentation
+#-----------------------------------------------------------------------
+# Example code in package build process
+*-Ex.R
+
+# Output files from R CMD build
+/*.tar.gz
+
+# Output files from R CMD check
+/*.Rcheck/
+
+# Vignettes & pkgdown
+vignettes/*.html
+vignettes/*.pdf
+docs/
+
+# Knitr and R Markdown cache
+*_cache/
+/cache/
+*.utf8.md
+*.knit.md
+
+# Bookdown files
+/*_files/
+
+# Translation temp files
+po/*~
+
+#-----------------------------------------------------------------------
+# Common Operating System Files
+#-----------------------------------------------------------------------
+.DS_Store
+Thumbs.db
