@@ -1,7 +1,7 @@
 # title: "Processing and Integration Script"
 # author: "Pedro Sodré"
 # date: "2025-06-04"
-library(styler)
+
 # --- Load Parameters ----
 tryCatch({
   source("scripts/Parameters.R") 
