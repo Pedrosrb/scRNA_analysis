@@ -3,20 +3,18 @@
 # date: "2025-06-04"
 
 # --- Input/Output Paths ----
-# Path to the input RDS file containing Seurat objects (e.g., a list of Seurat objects).
-input_rds_path <- "/data04/projects04/PatriciaPossik/singlecell_am/bin/objects/prj_list.rds"
 
-# Directory to save the processed Seurat object and intermediate files.
+# Directory to save intermediate files.
 output_directory <- "/data04/projects04/PatriciaPossik/singlecell_am/bin/objects/"
+
+#Path to the cell ranger samples outputs
+cellrange_directory <- "/data04/projects04/PatriciaPossik/singlecell_am/data/count10x_outputs/Zhang/primary/"
 
 # Path to the R script containing custom functions (e.g., functions.R).
 functions_script_path <- "/data04/projects04/PatriciaPossik/singlecell_am/bin/scripts/Functions.R"
 
 # Custom R library path to load packages from.
 custom_lib_paths <- "/home/pedrosrb/singlecell_am/lib/Rpackages/" 
-
-# Key in the input RDS list specifying the Seurat object to process.
-list_key_to_process <- "All_Primary"
 
 # --- Quality Control (QC) Parameters ----
 # Maximum mitochondrial percentage allowed for cells during filtering.
@@ -60,3 +58,6 @@ cell_type_to_subset <- "Melanocytes"
 # Suffix to add to the output filename for the subsetted object.
 subset_output_suffix <- "_melanocytes_only"
 
+# --- Plotting ----
+genes_to_highlight <- c("CRKL", "DPAGT1", "SF3B4", "SOX2",
+                        "SOX9", "SOX10", "MITF", "TYRP1", "THOC2")
