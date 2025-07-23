@@ -52,6 +52,7 @@ Generates and saves plots in the `results/single_cell_analysis/` directory, corr
 ## Software and Dependencies
 
 - R version: `4.4.3`
+- CellRanger: `8.0.1`
 - Dependencies managed via [`renv`](https://rstudio.github.io/renv/)
 - Key R packages:
   - `Seurat`
