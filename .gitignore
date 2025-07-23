@@ -44,6 +44,7 @@ results/
 
 # Common output files
 *.rds
+*.pdf
 *.csv
 *.png
 
