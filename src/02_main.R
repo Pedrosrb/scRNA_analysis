@@ -1,26 +1,31 @@
-# title: "Processing and Integration Script"
-# author: "Pedro Sodré"
-# date: "2025-06-04"
+# =============================================================================
+# Single-cell pipeline: Extended Data Figure 18, panels a-f
+# Run:      source("src/02_main.R")
+# Outputs:  output_directory (04_parameters.R)
+# Inputs:   src/04_parameters.R
+#   cellranger_directory  <SRR>/outs/filtered_feature_bc_matrix, one folder per sample
+#   tumour_labels         sample folder -> tumour label (AM1-AM6, CM1-CM3)
+# =============================================================================
 
-# --- Setup Project Root ----
+# ---- Setup Project Root ----
 library("here")
 here::i_am("src/02_main.R")
 
-# --- Activate renv Environment ----
+# ---- Activate renv Environment ----
 tryCatch({
   source(here("renv", "activate.R"))
 }, error = function(e) {
   stop("renv environment not found. Using default libraries.")
 })
 
-# --- Load Parameters ----
+# ---- Load Parameters ----
 tryCatch({
   source(here("src", "04_parameters.R")) 
 }, error = function(e) {
   stop("Error: Could not find or source 'src/04_Parameters.R'. Make sure the file exists.")
 })
 
-# --- Validate and Process Parameters ---
+# ---- Validate and Process Parameters ----
 if (is.null(functions_script_path) || !file.exists(functions_script_path)) {
   stop(paste0("Error: Functions script not found. Check the 'functions_script_path' in your parameters file. Path provided: '", functions_script_path, "'"))
 }
@@ -32,20 +37,17 @@ if (length(variables_to_regress) == 0) {
 clustering_dimensions_numeric <- eval(parse(text = clustering_dimensions))
 umap_dimensions_numeric <- eval(parse(text = umap_dimensions))
 
-# --- Setup Environment ----
+# ---- Setup Environment ----
 message(paste0("--- Starting Single-Cell Processing Script (", Sys.time(), ") ---"))
 
-# Set custom R library paths if provided in parameters.R
 if (!is.null(custom_lib_paths) && all(dir.exists(custom_lib_paths))) {
   .libPaths(c(custom_lib_paths, .libPaths()))
   message(paste0("Custom R library paths set to: ", paste(custom_lib_paths, collapse = ", ")))
 }
 
-# Create output directory
 dir.create(output_directory, showWarnings = FALSE, recursive = TRUE)
 message(paste0("Output directory set to: '", output_directory, "'"))
 
-# Source custom functions (path taken from parameters.R)
 message(paste0("Sourcing custom functions from: '", functions_script_path, "'..."))
 tryCatch({
   source(functions_script_path)
@@ -54,7 +56,6 @@ tryCatch({
 })
 message("Custom functions sourced successfully.")
 
-# Load required packages (using function from functions.R)
 message("Loading required R packages...")
 tryCatch({
   load_pkgs() 
@@ -63,9 +64,8 @@ tryCatch({
 })
 message("Required packages loaded.")
 
-# --- Main Processing Workflow ----
+# ---- Main Processing Workflow ----
 
-# Step 1: Load Seurat Objects List
 message("Step 1: Creating Seurat objects list from Cell Ranger output'")
 seurat_objs_list <- tryCatch({
   create_seurat_list(
@@ -77,7 +77,6 @@ seurat_objs_list <- tryCatch({
 })
 message("Seurat objects list loaded.")
 
-# Step 2: Filtering (Mitochondrial percentage and Doublets)
 message(paste0("Step 2: Filtering Seurat object (MT% < ", mt_threshold, ", doublet detection with seed ", doublet_detection_seed, ")..."))
 
 aux_obj_filtered_list <- tryCatch({
@@ -87,7 +86,6 @@ aux_obj_filtered_list <- tryCatch({
 })
 message("Filtering complete.")
 
-# Step 3: Integration (SCTransform, PCA, Harmony)
 message(paste0("Step 3: Integrating Seurat object using Harmony (grouping by '", group_by_variable_for_integration, "', regressing '",
                paste(variables_to_regress, collapse = ", "), "', using ", num_principal_components, " PCs)..."))
 
@@ -99,10 +97,14 @@ aux_obj_integrated <- tryCatch({
 }, error = function(e) {
   stop(paste0("Error during integration: ", e$message))
 })
-aux_obj_integrated$Type <- ifelse(seurat_obj$orig.ident %in% c("SRR20791198", "SRR20791197", "SRR20791204"), "CM", "AM")
+unknown_samples <- setdiff(unique(aux_obj_integrated$orig.ident), names(tumour_labels))
+if (length(unknown_samples) > 0) {
+  stop(paste0("Samples missing from 'tumour_labels' in 04_parameters.R: ", paste(unknown_samples, collapse = ", ")))
+}
+aux_obj_integrated$tumour <- unname(tumour_labels[aux_obj_integrated$orig.ident])
+aux_obj_integrated$Type <- substr(aux_obj_integrated$tumour, 1, 2)
 message("Integration complete.")
 
-# Step 4: Clustering
 message(paste0("Step 4: Performing clustering (using dims ", paste(clustering_dimensions_numeric, collapse = ","),
                ", resolutions: ", paste(clustering_resolutions_to_test, collapse = ","), ")..."))
 aux_obj_clustered <- tryCatch({
@@ -115,7 +117,6 @@ aux_obj_clustered <- tryCatch({
 })
 message("Clustering complete.")
 
-# Step 5: UMAP 
 message(paste0("Step 5: Running UMAP embedding (using reduction '", umap_reduction_method, "', dims ",
                paste(umap_dimensions_numeric, collapse = ","), ")..."))
 aux_obj_umap <- tryCatch({
@@ -127,7 +128,6 @@ aux_obj_umap <- tryCatch({
 })
 message("UMAP embedding complete.")
 
-# Step 6: Cell Type Annotation (SingleR)
 message(paste0("Step 6: Annotating cell types using SingleR with reference: '", singler_reference_dataset, "'..."))
 aux_obj_annotated <- tryCatch({
   annotate_singler(aux_obj_umap, ref_dataset_name = singler_reference_dataset)
@@ -136,15 +136,14 @@ aux_obj_annotated <- tryCatch({
 })
 message("Cell type annotation complete.")
 
-# Step 7: Subset Specific Cell Type 
 subset_obj <- NULL 
 if (!is.null(cell_type_to_subset) && nchar(cell_type_to_subset) > 0) {
   message(paste0("--- Step 7: Subsetting for '", cell_type_to_subset, "' cells ---"))
-  
+
   if (!"SingleR.labels" %in% colnames(aux_obj_annotated@meta.data)) {
     stop("Error: 'SingleR.labels' column not found in metadata. Cannot subset.")
   }
-  
+
   cells_before_subset <- ncol(aux_obj_annotated)
   subset_obj <- tryCatch({
     subset(aux_obj_annotated, subset = SingleR.labels == cell_type_to_subset)
@@ -152,150 +151,184 @@ if (!is.null(cell_type_to_subset) && nchar(cell_type_to_subset) > 0) {
     stop(paste0("Error during subsetting: ", e$message))
   })
   cells_after_subset <- ncol(subset_obj)
-  
+
   message(paste0("Subsetting complete. Kept ", cells_after_subset, " '", cell_type_to_subset, "' cells out of ", cells_before_subset, "."))
-  
+
 } else {
   message("--- Step 7: No cell type specified for subsetting. Skipping. ---")
 }
 
-# --- Plotting and Saving Results ---
-# Step 8: Plotting - Figure 7A (UMAP of all cell types)
-fig7a <- DimPlot(aux_obj_annotated,
-                 group.by = "SingleR.labels", 
-                 label = TRUE, 
-                 repel = TRUE, 
-                 raster = FALSE,
-                 cols = custom_colors) +
-  labs(
-    title = "UMAP - Primary AM and CM", 
-    subtitle = "All Cell Types") +
-  theme_classic2()
+if (!is.null(subset_obj)) {
+  subset_obj <- RunUMAP(subset_obj,
+                        reduction = umap_reduction_method,
+                        dims = umap_dimensions_numeric)
+}
 
-ggsave(filename = file.path(output_directory, "Fig7A_UMAP_All_Cell_Types.pdf"),
-       plot = fig7a, width = 12, height = 8, dpi = 300)
-message("Saved Figure 7A.")
+# ---- Plotting and Saving Results: Extended Data Figure 18 ----
+save_panel <- function(name, plot, panel) {
+  ggsave(filename = file.path(output_directory, name), plot = plot,
+         width = figure_sizes[[panel]][1], height = figure_sizes[[panel]][2], dpi = figure_dpi)
+  message("Saved Figure 18", panel, ".")
+}
+fig18_theme <- theme_classic2() +
+  theme(legend.position = "top", legend.justification = "left", legend.title = element_blank())
 
-# Step 9: Plotting - Figure 7B (DotPlot of marker genes)
-fig7b <- DotPlot(aux_obj_annotated,
-                 features = genes_to_highlight,
-                 assay = "SCT",
-                 dot.scale = 8,
-                 group.by = "SingleR.labels") +
-  scale_color_gradient2(low = "blue", mid = "grey", high = "firebrick2") + 
-  labs(
-    title = "DotPlot - Marker Gene Expression",
-    subtitle = "All Cell Types",
-    x = "Features",
-    y = "Cell Types") +
+cells_in_figure <- colnames(aux_obj_annotated)[aux_obj_annotated$SingleR.labels %in% names(cell_type_labels)]
+aux_obj_figure <- subset(aux_obj_annotated, cells = cells_in_figure)
+aux_obj_figure$cell_type_label <- factor(unname(cell_type_labels[aux_obj_figure$SingleR.labels]),
+                                         levels = unname(cell_type_labels))
+
+fig18a <- DimPlot(aux_obj_figure,
+                  group.by = "cell_type_label",
+                  label = FALSE,
+                  raster = FALSE,
+                  cols = custom_colors) +
+  labs(title = NULL, x = "UMAP 1", y = "UMAP 2") +
+  fig18_theme
+
+save_panel("Fig18a_UMAP_All_Cell_Types.pdf", fig18a, "a")
+
+fig18b <- DotPlot(aux_obj_figure,
+                  features = genes_to_highlight,
+                  assay = "SCT",
+                  dot.scale = 8,
+                  group.by = "cell_type_label") +
+  scale_color_gradient2(low = dotplot_colors[["low"]], mid = dotplot_colors[["mid"]], high = dotplot_colors[["high"]]) +
+  guides(color = guide_colorbar(title = "expression\nlevel"), size = guide_legend(title = "% of cells")) +
+  labs(title = NULL, x = NULL, y = NULL) +
   theme_classic2() +
-  RotatedAxis()
+  theme(axis.text.x = element_text(angle = 45, hjust = 1, face = "italic"))
 
-ggsave(filename = file.path(output_directory, "Fig7B_DotPlot_Markers.pdf"),
-       plot = fig7b, width = 10, height = 8, dpi = 300)
-message("Saved Figure 7B.")
+save_panel("Fig18b_DotPlot_Markers.pdf", fig18b, "b")
 
-# Step 10: Plotting - Figure 7C (UMAP of subset)
-if (!is.null(subset_obj)) {
-  fig7c <- DimPlot(subset_obj,
-                   group.by = "Type", 
-                   label = FALSE, 
-                   repel = TRUE, 
-                   raster = FALSE) +
-    labs(
-      title = "UMAP - Primary AM and CM", 
-      subtitle = paste(cell_type_to_subset, "Subset")) +
-    theme_classic2()
-  
-  ggsave(filename = file.path(output_directory, "Fig7C_UMAP_Subset.pdf"),
-         plot = fig7c, width = 12, height = 8, dpi = 300)
-  message("Saved Figure 7C.")
+if (is.null(subset_obj)) {
+  stop("Figures 18c-f need the melanocyte subset: set 'cell_type_to_subset' in 04_parameters.R.")
 }
 
-# Step 11: Plotting - Figure 7D (Volcano Plot)
-if (!is.null(subset_obj)) {
-  de_results <- FindMarkers(
-    object = subset_obj,
-    group.by = "Type", 
-    ident.1 = "AM",     
-    ident.2 = "CM",     
-    assay = "SCT",
-    test.use = "MAST",
-    min.pct = 0.05,
-    logfc.threshold = 0.25
-  )
-  
-  de_results$threshold <- "Not significant"
-  de_results$threshold[de_results$avg_log2FC > 1 & de_results$p_val_adj < 0.05] <- "Upregulated"
-  de_results$threshold[de_results$avg_log2FC < -1 & de_results$p_val_adj < 0.05] <- "Downregulated"
-  
-  highlight_genes_data <- de_results[rownames(de_results) %in% genes_to_highlight, ]
-  
-  fig7d <- ggplot(de_results, aes(x = avg_log2FC, y = -log10(p_val_adj))) +
-    geom_point(aes(color = threshold), alpha = 0.8, size = 1.3) +
-    scale_color_manual(values = c("Downregulated" = "blue", "Not significant" = "grey", "Upregulated" = "red")) +
-    geom_point(data = highlight_genes_data, aes(x = avg_log2FC, y = -log10(p_val_adj)), color = "black", size = 2, shape = 1) +
-    ggrepel::geom_text_repel(data = highlight_genes_data, aes(label = rownames(highlight_genes_data)), box.padding = 0.5) +
-    labs(title = "Volcano Plot: DEGs AM vs CM", x = "Log2 Fold Change", y = "-Log10(Adjusted p-value)") +
-    theme_classic2()
-  
-  ggsave(filename = file.path(output_directory, "Fig7D_Volcano_Plot.pdf"),
-         plot = fig7d, width = 12, height = 8, dpi = 300)
-  message("Saved Figure 7D.")
-}
+fig18c <- DimPlot(subset_obj,
+                  group.by = "Type",
+                  label = FALSE,
+                  raster = FALSE,
+                  cols = subtype_colors) +
+  labs(title = NULL, x = "UMAP 1", y = "UMAP 2") +
+  fig18_theme
 
-# # Step 12: Plotting - Figure 7E (Violin Plot)
-am_like_genes <- rownames(head(de_results[de_results$threshold == "Upregulated", ][order(de_results[de_results$threshold == "Upregulated", ]$p_val_adj), ], 100))
-  
-cm_like_genes <- rownames(head(de_results[de_results$threshold == "Downregulated", ][order(de_results[de_results$threshold == "Downregulated", ]$p_val_adj), ], 100))
+save_panel("Fig18c_UMAP_Subset.pdf", fig18c, "c")
+
+subset_obj <- PrepSCTFindMarkers(subset_obj, verbose = FALSE)
+de_results <- FindMarkers(
+  object = subset_obj,
+  group.by = "Type",
+  ident.1 = "AM",
+  ident.2 = "CM",
+  assay = "SCT",
+  test.use = de_test,
+  min.pct = de_min_pct,
+  logfc.threshold = de_logfc_threshold,
+  recorrect_umi = FALSE
+)
+de_results$gene <- rownames(de_results)
+
+de_results$threshold <- "n.s"
+de_results$threshold[de_results$avg_log2FC > de_log2fc_cutoff & de_results$p_val_adj < de_padj_cutoff] <- "up"
+de_results$threshold[de_results$avg_log2FC < -de_log2fc_cutoff & de_results$p_val_adj < de_padj_cutoff] <- "down"
+de_results$threshold <- factor(de_results$threshold, levels = c("n.s", "down", "up"))
+write.table(de_results, file.path(output_directory, "Fig18d_markers_MAST_AM_vs_CM.tsv"),
+            sep = "\t", quote = FALSE, row.names = FALSE)
+
+highlight_genes_data <- de_results[rownames(de_results) %in% genes_to_highlight, ]
+
+fig18d <- ggplot(de_results, aes(x = avg_log2FC, y = -log10(p_val_adj))) +
+  geom_point(aes(color = threshold), alpha = 0.8, size = 0.8) +
+  scale_color_manual(values = volcano_colors) +
+  geom_vline(xintercept = c(-de_log2fc_cutoff, de_log2fc_cutoff), linetype = "dashed", color = "grey60") +
+  geom_hline(yintercept = -log10(de_padj_cutoff), linetype = "dashed", color = "grey60") +
+  geom_point(data = highlight_genes_data, color = "black", size = 1.5) +
+  ggrepel::geom_text_repel(data = highlight_genes_data, aes(label = gene), fontface = "italic",
+                           box.padding = 0.5, min.segment.length = 0, seed = 1) +
+  labs(title = NULL, x = expression(Log[2]~"Fold Change (AM vs CM)"), y = expression(-Log[10]~"(adj. p value)")) +
+  fig18_theme
+
+save_panel("Fig18d_Volcano_Plot.pdf", fig18d, "d")
+
+up_genes <- de_results[de_results$threshold == "up", ]
+down_genes <- de_results[de_results$threshold == "down", ]
+am_like_genes <- head(up_genes$gene[order(up_genes$p_val_adj)], score_top_genes)
+cm_like_genes <- head(down_genes$gene[order(down_genes$p_val_adj)], score_top_genes)
+write.table(rbind(data.frame(direction = "AM-like", gene = am_like_genes),
+                  data.frame(direction = "CM-like", gene = cm_like_genes)),
+            file.path(output_directory, "internal_score_genes.tsv"),
+            sep = "\t", quote = FALSE, row.names = FALSE)
 
 subset_obj <- AddModuleScore(subset_obj, features = list(am_like_genes), name = "am_like_score", assay = "SCT")
 subset_obj <- AddModuleScore(subset_obj, features = list(cm_like_genes), name = "cm_like_score", assay = "SCT")
+subset_obj$internal_score <- subset_obj$am_like_score1 - subset_obj$cm_like_score1
 
-subset_obj$am_cm_like_ratio <- subset_obj$am_like_score1 - subset_obj$cm_like_score1
-
-max_CM <- max(subset_obj@meta.data$am_cm_like_ratio[subset_obj@meta.data$Type == "CM"], na.rm = TRUE)
-min_AM <- min(subset_obj@meta.data$am_cm_like_ratio[subset_obj@meta.data$Type == "AM"], na.rm = TRUE)
-
-fig7e <- VlnPlot(subset_obj, 
-                 features = "am_cm_like_ratio", 
-                 group.by = "Type", 
-                 assay = "SCT", 
-                 pt.size = 0.0) +
-  labs(title = "Top DEGs Ratio Score") +
-  geom_hline(yintercept = max_CM, color = "black", linetype = "dashed") +
-  geom_hline(yintercept = min_AM, color = "black", linetype = "dashed") +
-  theme_classic2()
-
-ggsave(filename = file.path(output_directory, "Fig7E_VlnPlot_DEGs_Score.pdf"),
-       plot = fig7e, width = 8, height = 6, dpi = 300)
-message("Saved Figure 7E.")
- 
-# # Step 13: Plotting - Figure 7F (Linear Model)
-model_data <- data.frame(
-  am_cm_like_ratio = subset_obj@meta.data$am_cm_like_ratio,
-  SF3B4_Expression = GetAssayData(subset_obj, assay = "SCT", layer = "data")["SF3B4", ], 
-  Type = factor(subset_obj@meta.data$Type) 
+rna_assay <- JoinLayers(subset_obj[["RNA"]])
+cell_data <- data.frame(
+  tumour = subset_obj$tumour,
+  Type = factor(subset_obj$Type, levels = c("AM", "CM")),
+  gene_umi = as.numeric(LayerData(rna_assay, layer = "counts")[focus_gene, colnames(subset_obj)]),
+  gene_sct = as.numeric(GetAssayData(subset_obj, assay = "SCT", layer = "data")[focus_gene, ]),
+  internal_score = subset_obj$internal_score,
+  log10_umi = log10(subset_obj$nCount_RNA)
 )
+write.table(cell_data, file.path(output_directory, "cell_level_scores.tsv"),
+            sep = "\t", quote = FALSE, row.names = TRUE, col.names = NA)
+expressing <- cell_data[cell_data$gene_umi > 0, ]
 
-lm_model <- lm(am_cm_like_ratio ~ SF3B4_Expression * Type, data = model_data)
+panel_e <- expressing %>%
+  group_by(tumour, Type) %>%
+  summarise(mean = mean(gene_umi), sd = sd(gene_umi), n_expressing = n(), .groups = "drop") %>%
+  mutate(lo = mean - ci_z * sd / sqrt(n_expressing), hi = mean + ci_z * sd / sqrt(n_expressing)) %>%
+  left_join(cell_data %>% group_by(tumour) %>% summarise(melanocytes = n(), .groups = "drop"), by = "tumour") %>%
+  mutate(detected_pct = 100 * n_expressing / melanocytes,
+         tumour = factor(tumour, levels = rev(unname(tumour_labels))))
+write.table(panel_e, file.path(output_directory, "Fig18e_gene_per_tumour.tsv"),
+            sep = "\t", quote = FALSE, row.names = FALSE)
 
-ggsave(filename = file.path(output_directory, "Linear_Model_Validation.pdf"),
-       plot = summary(lm_fit), width = 8, height = 6, dpi = 300)
+fig18e <- ggplot(panel_e, aes(mean, tumour, color = Type)) +
+  geom_errorbar(aes(xmin = lo, xmax = hi), orientation = "y", width = 0.3) +
+  geom_point(size = 2.2) +
+  scale_color_manual(values = subtype_colors) +
+  labs(x = bquote(italic(.(focus_gene))~"UMIs per expressing cell"), y = NULL) +
+  fig18_theme
 
+save_panel("Fig18e_UMIs_per_tumour.pdf", fig18e, "e")
 
-fig7f <- ggplot(model_data, aes(x = SF3B4_Expression, y = am_cm_like_ratio, color = Type, fill = Type)) +
-  geom_point(alpha = 0.5, size = 1.5) +
-  geom_smooth(method = "lm", se = TRUE, alpha = 0.15) +
-  labs(
-    title = "Top DEGs Score Ratio vs SF3B4 Expression",
-    x = "SF3B4 Expression (Normalized)",
-    y = "AM/CM-like ratio"
-  ) +
-  theme_classic2()
+fig18f <- ggplot(expressing, aes(gene_sct, internal_score, color = Type, fill = Type)) +
+  geom_point(size = 0.15, alpha = 0.25, stroke = 0) +
+  geom_smooth(method = "lm", formula = y ~ x, se = TRUE, linewidth = 0.8, alpha = 0.2, show.legend = FALSE) +
+  scale_color_manual(values = subtype_colors) +
+  scale_fill_manual(values = subtype_colors, guide = "none") +
+  guides(color = guide_legend(override.aes = list(size = 2.2, alpha = 1))) +
+  labs(x = bquote(italic(.(focus_gene))~"expression (SCT)"), y = "Internal AM/CM score") +
+  fig18_theme
 
-ggsave(filename = file.path(output_directory, "Fig7F_LM_Plot.pdf"),
-       plot = fig7f, width = 10, height = 6, dpi = 300)
-message("Saved Figure 7F.")
+save_panel("Fig18f_LM_Plot.pdf", fig18f, "f")
+
+fit_lm <- function(data, label) {
+  fit <- summary(lm(internal_score ~ gene_sct * Type, data = data))
+  am <- summary(lm(internal_score ~ gene_sct, data = data[data$Type == "AM", ]))$coefficients
+  cm <- summary(lm(internal_score ~ gene_sct, data = data[data$Type == "CM", ]))$coefficients
+  data.frame(cells = label, n = nrow(data),
+             AM_slope = am["gene_sct", 1], AM_p = am["gene_sct", 4],
+             CM_slope = cm["gene_sct", 1], CM_p = cm["gene_sct", 4],
+             interaction = fit$coefficients["gene_sct:TypeCM", 1],
+             interaction_p = fit$coefficients["gene_sct:TypeCM", 4],
+             adj_R2 = fit$adj.r.squared, F = fit$fstatistic[[1]],
+             df1 = fit$fstatistic[[2]], df2 = fit$fstatistic[[3]])
+}
+write.table(rbind(fit_lm(expressing, paste(focus_gene, "> 0")), fit_lm(cell_data, "all cells")),
+            file.path(output_directory, "Fig18f_regression.tsv"),
+            sep = "\t", quote = FALSE, row.names = FALSE)
+
+per_tumour <- do.call(rbind, lapply(split(expressing, expressing$tumour), function(d) {
+  co <- summary(lm(internal_score ~ gene_sct + log10_umi, data = d))$coefficients
+  data.frame(tumour = d$tumour[1], Type = d$Type[1], n = nrow(d),
+             slope = co["gene_sct", 1], p = co["gene_sct", 4])
+}))
+write.table(per_tumour, file.path(output_directory, "Fig18f_per_tumour_slopes.tsv"),
+            sep = "\t", quote = FALSE, row.names = FALSE)
 
 message(paste0("--- Single-Cell Processing Script Finished (", Sys.time(), ") ---"))

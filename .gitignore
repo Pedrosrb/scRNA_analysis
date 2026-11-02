@@ -32,15 +32,16 @@ renv/library/
 renv/staging/
 renv/cellar/
 
+revision/renv/library/
+revision/renv/staging/
+revision/renv/cellar/
+
 #-----------------------------------------------------------------------
 # Project-Specific Folders & Files
 #-----------------------------------------------------------------------
 # Ignore large data and results directories
 data/
 results/
-
-# Ignore user-specific library path from Parameters.R
-/home/pedrosrb/singlecell_am/lib/Rpackages/
 
 # Common output files
 *.rds
